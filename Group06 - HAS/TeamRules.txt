@@ -1,0 +1,25 @@
+Team Rules and Coding Conventions:
+
+- The project branches off as a tree, with the master branch being the root. For any branch X, a branch X-Y
+  is a sub-branch of X and must be merged to X (and tested) before being merged to anything else.
+
+- A branch/sub-branch is a team member's name in its name (e.g. desktop-sam) should not be modified, deleted
+  of merged by any other team member. If you do want to work on sombody else's branch X, make a sub-branch of X
+  with your own name. Then, you can merge your sub-branch with the SUPER-branch of X, not X itself.
+
+- The opening brackets are always on the same line as the class name/method signature/control statement.
+  e.g	if(true){	public void hello(){	public class Warrior{
+	}		}			}
+
+- if/else/while/for with only one statement uses no brackets.
+  e.g.	if(x < 3)
+	    return x;
+
+- We use the camel case naming convention (e.g. camelCaseNamingConvention). Names can be abbreviated to a single
+  or a few letters, as long as the variable name is understandable (e.g. camCaseNamConv). Constant names are
+  written in capital letters and words are seperated with underscores (e.g. CAMEL_CASE_NAM_CONV).
+
+- Methods are written in alphabetical order.
+
+- All JUnit test class names start with Test (e.g. TestDesktopController). All JUnit test group names start with
+  AllTests (e.g. AllTestsDesktop).

@@ -1,0 +1,667 @@
+namespace ca.mcgill.ecse223.tileo.model;
+
+use Tile-O-Persistence.ump;
+use PlayerStatus.ump;
+use ActionTileStatus.ump;
+use PlayController.ump;
+
+class TileO {
+  1 <@>- * Game games;
+             
+  1 -> 0..1 Game currentGame;
+}
+
+class Game {
+  mode { DESIGN{} GAME{} GAME_WON{} GAME_ROLLDIEACTIONCARD{} GAME_CONNECTTILESACTIONCARD{} GAME_REMOVECONNECTIONACTIONCARD{} 
+  GAME_TELEPORTACTIONCARD{} GAME_LOSETURNACTIONCARD{} GAME_MOVEWINTILEACTIONCARD{} GAME_REVEALTILEACTIONCARD{}
+  GAME_TURNTILETOACTIONTILEACTIONCARD{} GAME_RANDOMLYMOVEPLAYERACTIONTILE{} GAME_WINTILEHINTACTIONCARD{} GAME_NEXTPLAYERROLLSONEACTIONCARD{}
+   GAME_RANDOMLYASSIGNNEWINACTIVITYPERIODSTOALLACTIONTILESACTIONCARD{}}
+  1 <@>- 2..4 Player players;
+  1 <@>- * Tile tiles;
+  1 <@>- * Connection connections;
+  1 <@>- 1 Deck deck;
+  1 <@>- 1 Die die;
+  1 -> 0..1 Player currentPlayer;
+  1 -> 0..1 WinTile winTile;
+  const Integer SpareConnectionPieces = 32;
+  Integer currentConnectionPieces;
+  const Integer NumberOfActionCards = 32;
+
+
+  public void updateTileStatus() {
+    for (Tile tile : getTiles()) {
+      if (tile instanceof ActionTile) {
+        ((ActionTile) tile).takeTurn();
+      }
+    }
+  }
+
+  public void determineNextPlayer() {
+    boolean found = false;
+    Player player = getCurrentPlayer();
+    Player nextPlayer;
+    while (!found) {
+      try {
+        nextPlayer = getPlayer(indexOfPlayer(player) + 1);
+      } catch (IndexOutOfBoundsException e) {
+        nextPlayer = getPlayer(0);
+      }
+      if (nextPlayer.getPlayerStatus() == PlayerStatus.Active) {
+        found = true;
+      } else {
+        nextPlayer.takeTurn();
+      }
+      player = nextPlayer;
+    }
+    setCurrentPlayer(player);
+  }
+
+  
+    public void replaceTile(Tile oldTile, String tileType, int inactivePeriod) {
+      List <Connection> oldConnectionList = oldTile.getConnections();
+      int x = oldTile.getX();
+      int y = oldTile.getY();
+
+      Tile tile ; //member
+
+      if(tileType.equals("WinTile")) {
+          tile = new WinTile(x,y,this);
+      }
+      else if(tileType.equals("NormalTile")) {
+          tile = new NormalTile(x,y,this);
+      }
+      else {
+          tile = new ActionTile(x,y,this,inactivePeriod); //all reset to 3 when created fresh
+      }
+
+
+      //Parse through connection, remove old tile reference, add new tile to each connection
+      for(Connection connection : oldConnectionList) {
+          connection.removeTile(oldTile);
+          connection.addTile(tile);
+      }
+
+      //Check to see the cases for replace tile
+      for(Player player : getPlayers()){
+
+          //replace current tile of player
+          if(player.getCurrentTile().equals(oldTile)) {
+              player.setCurrentTile(tile);
+          }
+
+          //replace starting tile of player
+          if(player.getStartingTile().equals(oldTile)) {
+              player.setStartingTile(tile);
+          }
+      }
+      oldTile.delete(); //delete after done
+  }
+
+}
+
+class Player {
+  color { RED{} BLUE{} GREEN{} YELLOW{} }
+  1 -> 0..1 Tile startingTile;
+  0..4 -> 0..1 Tile currentTile;
+  unique Integer number;
+  Integer turnsUntilActive = 0;
+  
+    public List<Tile> getPossibleMoves(int number) {
+
+    Tile currentTile = this.getCurrentTile();
+    List<Tile> possibleMoves = new LinkedList<Tile>();
+    possibleMoves = currentTile.getNeighbors(number, null);
+
+    return possibleMoves;
+  }
+}
+
+class Tile {
+  abstract;
+
+  2 tiles -- 0..4 Connection connections;
+  Integer x;
+  Integer y;
+  Boolean hasBeenVisited = false;
+  
+  public abstract void land();
+
+
+	public List<Tile> getNeighbors(int number, Tile previousTile){
+		List<Tile> neighborTiles = new ArrayList<Tile>();
+
+
+
+		if(number == 0) {
+			neighborTiles.add(this); //add current tile
+			return neighborTiles; //return list
+		}
+
+		else {
+
+
+			//Parse through connections to get list of tiles connected
+			//Todo: add unique stuff in for loop
+			//List<Connection> connectionList = this.getConnections();
+
+
+			Boolean hasNeighbors = false;
+			for (Connection aConnection : this.getConnections()) {
+				for(Tile aTile : aConnection.getTiles()) {
+					if (aTile != this) {
+						List<Tile> newTileList = aTile.getNeighbors(number - 1, this);
+						for (Tile newTile : newTileList) {
+							hasNeighbors = true; //we use this to determine if there are new neighbors
+							if (!neighborTiles.contains(newTile))
+								neighborTiles.add(newTile);
+						}
+					}
+				}
+
+			}
+			if(!hasNeighbors) //If this is false then only add this one to neighborTiles
+				neighborTiles.add(this);
+		}
+
+		return neighborTiles;
+	}
+
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (!(o instanceof Tile)) return false;
+
+    Tile tile = (Tile) o;
+
+    if (getX() != tile.getX()) return false;
+    return getY() == tile.getY();
+  }
+
+  public int hashCode() {
+    int result = getX();
+    result = 31 * result + getY();
+    return result;
+  }
+}
+
+class ActionTile {
+  isA Tile;
+
+  immutable Integer inactivityPeriod;
+  Integer turnsUntilActive= 0;
+  
+  /**
+   *
+   * Reactive method to landing on action tile. Sets player's current tile  Checks if inactivity period is over.
+   * If it is then the deck is retrieved, a card is drawn, the deck is updated and the action tile is set to inactive
+   * Otherwise, the turnUntilActive is decremented.
+   * and
+   *
+   * @param none
+   * @return void
+   * @apiNote Author : Yaniv Bronshtein and Ananya Chandra
+   */
+
+  public void land() {
+	int nextPlayerIndex;
+    Game currentGame = this.getGame();
+    Player currentPlayer = currentGame.getCurrentPlayer();
+    currentPlayer.setCurrentTile(this);
+    this.setHasBeenVisited(true);
+    if(turnsUntilActive == 0) {
+      Deck deck = currentGame.getDeck();
+      ActionCard currentCard = deck.getCurrentCard();
+      Game.Mode actionCardMode = currentCard.getActionCardGameMode();
+      int nextCardIndex = deck.indexOfCard(currentCard) + 1;
+      deck.setCurrentCard(deck.getCard(nextCardIndex));
+      turnsUntilActive = inactivityPeriod+1; //reset inactivity period
+      currentGame.setMode(actionCardMode);
+    }
+    else {
+    	//this only lowers turnUntilActive if the tile is landed on again, we want it to decrement every turn
+//      if (turnsUntilActive > 0){
+//        turnsUntilActive--;
+      //}
+    }
+    if(currentGame.indexOfPlayer(currentPlayer)==currentGame.getPlayers().size()-1)
+    	nextPlayerIndex = 0;
+    else
+    	nextPlayerIndex = currentGame.indexOfPlayer(currentPlayer) +1;
+    currentGame.setCurrentPlayer(currentGame.getPlayer(nextPlayerIndex));
+  }
+
+  /**
+   *
+   * Method that either turns a tile into actionTile, or creates an actionTile.
+   *
+   *
+   *
+   *
+   * @param Tile tile
+   * @return ActionTile
+   * @apiNote Author : Kartik Misra 260663577
+   */
+
+
+  public ActionTile identifyActionTile (Tile tile){
+    Game currentGame = this.getGame();
+    if(identifyActionTile(tile).getX() == tile.getX() && identifyActionTile(tile).getY() == tile.getY()){
+      ActionTile actionTile = new ActionTile(tile.getX(), tile.getY(), currentGame, 0);
+      tile = null;
+      return actionTile;
+    }
+    else{
+      ActionTile actionTile = new ActionTile(tile.getX(), tile.getY(), currentGame, 0);
+      return actionTile;
+    }
+  }
+}
+
+class NormalTile {
+  isA Tile;
+  
+    /**
+   *
+   * Reactive method to landing on normal tile. Sets player's current tile and updates current player. Sets the mode of the game.
+   *
+   * @param 
+   * @return void
+   * @apiNote Author : Yaniv Bronshtein and Ananya Chandra
+   */
+  public void land() {
+    Game currentGame = this.getGame();
+    Player currentPlayer = currentGame.getCurrentPlayer();
+    currentPlayer.setCurrentTile(this);
+    TileOApplication.getTileO().getCurrentGame().determineNextPlayer();
+    this.setHasBeenVisited(true);
+    currentGame.setMode(Game.Mode.GAME);
+
+  }
+}
+
+class WinTile {
+  isA Tile;
+     
+     /**
+   *
+   * Reactive method to landing on hidden tile. Marks tile as visited and changes game mode to "Game Won"
+   *
+   * @param none
+   * @return void
+   * @apiNote Author : Yaniv Bronshtein and Ananya Chandra
+   */
+  public void land() {
+    Game currentGame = this.getGame();
+    this.setHasBeenVisited(true);
+    currentGame.setMode( Game.Mode.GAME_WON);
+
+  }
+  
+}
+
+class Connection {
+}
+
+class Deck {
+  1 <@>- 0..32 ActionCard cards;
+  1 -> 0..1 ActionCard currentCard;
+  
+  
+    public void shuffle(){
+
+    for(int i = this.numberOfCards()-1; i >= 0 ; i--) {
+      int j = (int) ((Math.random() * 31) +1);
+
+      //swap
+      ActionCard temp = this.getCard(i);
+      cards.set(i, cards.get(j));
+      cards.set(j, temp);
+    }
+
+  }
+   /**
+   * Selects and adds 32 action cards to the deck
+   *
+   *
+   * @param String aInstructions
+   * @return deck completeDeck
+   * @apiNote Author : Kartik Misra 260663577
+   */
+
+
+  //enum of action cards
+  public enum ActionCardType {
+    ConnectTilesActionCard, LoseTurnActionCard, RemoveConnectionActionCard, RollDieActionCard,
+    TeleportActionCard, WinTileHintActionCard, RandomlyMovePlayersActionCard
+  }
+
+  public Deck select32Card(String aInstructions){
+    //creating deck to be filled with 32 card
+    Deck completeDeck = new Deck(this.game);
+    if(completeDeck.numberOfCards() == 32){
+      return completeDeck;
+    }
+    int i = completeDeck.numberOfCards();
+    while(i < 32) {
+      //each possible case of action cards that can be added, looped 32 times
+      switch (ActionCardType) {
+        case ConnectTilesActionCard:
+          completeDeck.addCardAt( new ConnectTilesActionCard(aInstructions,completeDeck), i);
+          break;
+
+        case LoseTurnActionCard:
+          completeDeck.addCardAt( new LoseTurnActionCard(aInstructions, completeDeck), i);
+          break;
+
+        case RemoveConnectionActionCard:
+          completeDeck.addCardAt( new RemoveConnectionActionCard(aInstructions, completeDeck), i);
+          break;
+
+        case RollDieActionCard:
+          completeDeck.addCardAt( new RollDieActionCard (aInstructions, completeDeck), i);
+          break;
+
+        case WinTileHintActionCard:
+          completeDeck.addCardAt( new WinTileHintActionCard (aInstructions, completeDeck), i);
+          break;
+
+        case RandomlyMovePlayersActionCard:
+          completeDeck.addCardAt( new RandomlyMovePlayersActionCard (aInstructions, completeDeck), i);
+          break;
+
+        default:
+          completeDeck.addCardAt( new TeleportActionCard(aInstructions,completeDeck), i);
+          break;
+      }
+    }
+    return completeDeck;
+  }
+}
+
+class ActionCard {
+  abstract;
+
+  immutable String instructions;
+}
+
+class RollDieActionCard {
+  isA ActionCard;
+  
+  public List<Tile> play(){
+
+    Game currentGame = TileOApplication.getTileO().getCurrentGame();
+
+    Die die = currentGame.getDie();
+    int number = die.roll();
+    Player currentPlayer = currentGame.getCurrentPlayer();
+    
+    List<Tile> tiles = currentPlayer.getPossibleMoves(number);
+
+    return tiles;
+  }
+  
+    public Mode getActionCardGameMode() {
+    return Game.Mode.GAME_ROLLDIEACTIONCARD;
+  }
+}
+
+class ConnectTilesActionCard {
+  isA ActionCard;
+   public boolean play(Tile tile1, Tile tile2) throws InvalidInputException{
+
+    boolean success = false;
+
+    Game currentGame = TileOApplication.getTileO().getCurrentGame();
+    Connection newConnection = new Connection(currentGame);
+    newConnection.addTile(tile1);
+    newConnection.addTile(tile2);
+    tile1.addConnection(newConnection);
+    tile2.addConnection(newConnection);
+    success = currentGame.addConnection(newConnection);
+    currentGame.setCurrentConnectionPieces(currentGame.getCurrentConnectionPieces()-1);
+    return success;
+  }
+  
+   public Mode getActionCardGameMode() {
+    return Game.Mode.GAME_CONNECTTILESACTIONCARD;
+  }
+  
+}
+
+class RemoveConnectionActionCard {
+  isA ActionCard;
+  
+  public void play(Connection connection) throws InvalidInputException {
+    //int numberOfConnections = connection.getTiles().size();
+    for(Tile tile : connection.getTiles()) {
+      tile.removeConnection(connection);
+      connection.removeTile(tile);
+    }
+
+  }
+  
+  public Mode getActionCardGameMode() {
+    return Game.Mode.GAME_REMOVECONNECTIONACTIONCARD;
+  }
+}
+
+class TeleportActionCard {
+  isA ActionCard;
+  
+  /**
+   * Implements play() for TeleportActionCard and throws InvalidInputException
+   *  Gets currentGame, currentPlayer, and sets the current tile to the specified tile
+   *
+   * @param Tile tile
+   * @return void
+   * @apiNote Author : Ananya Chandra
+   */
+  public void play(Tile tile) throws InvalidInputException {
+    Game currentGame = tile.getGame();
+    Player currentPlayer = currentGame.getCurrentPlayer();
+    currentPlayer.setCurrentTile(tile);
+
+  }
+  
+  public Mode getActionCardGameMode() {
+    return Game.Mode.GAME_TELEPORTACTIONCARD ;
+  }
+  
+}
+
+class LoseTurnActionCard {
+  isA ActionCard;
+  
+    /**
+   * Skips the turn of the currentPlayer, the next player plays and increments inactivity period
+   *
+   *
+   * @param currentPlayer
+   * @return void
+   * @apiNote Author : Yaniv Bronshtein 260618099 and Kartik Misra 260663577
+   */
+  public void play(Player currentPlayer) throws InvalidInputException {
+    currentPlayer.loseTurns(1); //make player lose this turn
+  }
+  
+   public Game.Mode getActionCardGameMode() {
+    return Game.Mode.GAME_LOSETURNACTIONCARD;
+  }
+}
+
+class MoveWinTileActionCard {
+  isA ActionCard;
+  
+    public void play(Tile tilePicked){
+	  Game currentGame = PlayController.getCurrentGame();
+	  Tile oldWinTile = currentGame.getWinTile(); //get previous winTile
+      currentGame.replaceTile(oldWinTile, "NormalTile",0); //change old win Tile to normal tile
+      currentGame.replaceTile(tilePicked,"WinTile", 0); //change tile at new position to new win tile
+  }
+
+  
+  public Game.Mode getActionCardGameMode() {
+    return Game.Mode.GAME_MOVEWINTILEACTIONCARD;
+  }
+}
+
+class RevealTileActionCard {
+  isA ActionCard;
+  
+  public String play(Tile selectedTile){
+      String finalMessage;
+      Game currentGame = PlayController.getCurrentGame();
+
+      if(currentGame.getTiles().contains(selectedTile)) {
+
+          if (selectedTile instanceof WinTile) {
+              finalMessage = "The selected tile is the Win Tile !";
+          } else if (selectedTile instanceof ActionTile) {
+              finalMessage = "The selected tile is and Action Tile !";
+          } else {
+              finalMessage = "The selected tile is a Regular Tile !";
+          }
+      }
+      else {
+          finalMessage = "Please selected an active tile";
+      }
+
+      return finalMessage;
+  }
+  
+   public Game.Mode getActionCardGameMode() {
+    return Game.Mode.GAME_REVEALTILEACTIONCARD;
+  }
+}
+
+class TurnTileToActionTileActionCard {
+  isA ActionCard;
+  public Game.Mode getActionCardGameMode() {
+    return Game.Mode.GAME_TURNTILETOACTIONTILEACTIONCARD;
+  }
+
+public void play(Tile tilePicked, int inactivePeriod) {
+    PlayController.getCurrentGame().replaceTile(tilePicked,"ActionTile", inactivePeriod); //change tile at new position to new win tile	
+}
+}
+
+class RandomlyAssignNewInactivityPeriodsToAllActionTilesActionCard {
+    isA ActionCard;
+    public Game.Mode getActionCardGameMode() {
+        return Game.Mode.GAME_RANDOMLYASSIGNNEWINACTIVITYPERIODSTOALLACTIONTILESACTIONCARD;
+    }
+
+    public void play(int inactivePeriod) {
+        Game currentGame = TileOApplication.getTileO().getCurrentGame();
+       for(Tile tile : currentGame.getTiles()) {
+
+        if(tile instanceof ActionTile) {
+           currentGame.replaceTile(tile, "ActionTile", inactivePeriod);
+        }
+       }
+
+    }
+
+}
+
+
+
+class RandomlyMovePlayersActionCard {
+  isA ActionCard;
+  
+  public boolean play() throws InvalidInputException {
+
+      boolean success = false;
+
+      Game currentGame = TileOApplication.getTileO().getCurrentGame();
+
+      List<Player> players = currentGame.getPlayers();
+
+      for (Player player : players) {
+          moveRandomly(player);
+      }
+
+      return success;
+
+  }
+
+  void moveRandomly(Player player) {
+      Game currentGame = TileOApplication.getTileO().getCurrentGame();
+      List<Tile> tiles = currentGame.getTiles();
+
+      Random randomGenerator = new Random();
+      int index = randomGenerator.nextInt(tiles.size());
+
+      Tile randomTile = tiles.get(index);
+
+      if (randomTile instanceof ActionTile || randomTile instanceof WinTile){
+          moveRandomly(player);
+          return;
+      }
+
+      player.setCurrentTile(randomTile);
+  }
+  
+  
+  public Game.Mode getActionCardGameMode() {
+    return Game.Mode.GAME_RANDOMMOVEPLAYERSACTIONCARD;
+  }
+}
+
+
+class NextPlayerRollsOneActionCard {
+  isA ActionCard;
+  
+    
+  public Game.Mode getActionCardGameMode() {
+    return Mode.GAME_NEXTPLAYERROLLSONEACTIONCARD;
+  }
+
+public List<Tile> play() {
+    Game currentGame = TileOApplication.getTileO().getCurrentGame();
+    Player currentPlayer = currentGame.getCurrentPlayer();
+    Player nextPlayer = currentGame.getPlayer(currentGame.indexOfPlayer(currentPlayer)+1);
+    nextPlayer.loseTurns(1);
+    currentGame.setCurrentPlayer(nextPlayer);
+
+    List<Tile> tiles = nextPlayer.getPossibleMoves(1);
+    currentGame.setMode(Game.Mode.GAME);
+    return tiles;
+	
+}
+}
+
+class WinTileHintActionCard {
+   isA ActionCard;
+
+   public Game.Mode getActionCardGameMode() {
+    return Game.Mode.GAME_WINTILEHINTACTIONCARD;
+  }
+
+public boolean play(Tile selectedTile, int x, int y) throws InvalidInputException {
+	Game currentGame = TileOApplication.getTileO().getCurrentGame();
+    boolean returnValue = false;
+    WinTile currentWin = currentGame.getWinTile();
+    if (selectedTile == null) throw new InvalidInputException("Selected tile is not currently a valid tile.");
+    //These variables are used to check if the selected tile is the win tile, or one of its neighbours
+    int overX = currentWin.getX() + 1;
+    int underX = currentWin.getX() - 1;
+    int overY = currentWin.getY() + 1;
+    int underY = currentWin.getY() - 1;
+    if (y == currentWin.getY() && (x <= overX && x >= underX)) {
+        returnValue = true;
+    }
+    else if (x == currentWin.getX() && ( y <= overY && y >= underY)) {
+        returnValue = true;
+    }	
+    
+    return returnValue;
+    
+}
+}
+
+class Die {
+  public int roll(){
+    int face = (int) ((Math.random() * 6) + 1);
+    return face;
+  }
+}

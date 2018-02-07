@@ -1,0 +1,13 @@
+Git Tips:
+
+- To learn the basics of git fast, I recommend https://try.github.io/
+
+- If you are using git via the command line, be VERY careful. Writing "rm X" instead of "git rm X" is very easy
+  yet can fucks you up pretty badly (speaking from experience).
+
+- Put the repository (the folder with the .git file) in your Eclipse workspace folder. When you open the project in
+  Eclipse for the first time, make sure you set the location to the right folder (DesktopApp, AndroidApp or PHPApp)
+  and that the folder is inside the repository folder. If you do this correctly, every icon in the project should
+  have a little yellow rectangle on it. Also, the name of your repository folder and the branch you are currently
+  using should appear next to the project folder icon.
+

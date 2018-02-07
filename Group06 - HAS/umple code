@@ -1,0 +1,48 @@
+class Has{
+  singleton;
+  1-> 1..* Location location;
+  1-> * Library library;
+}
+
+class Location{
+  name;
+  Boolean muted;
+  int volume;
+   1-> * PlayMusic playmusic;
+}
+
+class PlayList{
+  name; 
+  int listPosition; 
+  *-> 1..* Song song;
+  isA PlayMusic;
+}
+class Song{
+  title;
+  int duration;
+  *-> 1..* Artist artist;
+  isA PlayMusic;
+}
+
+class Album{
+  name;
+  genre;
+  Date releaseDate;
+  int albumPosition;
+  *-> 1..* Song song;
+  isA PlayMusic;
+}
+
+class Artist{
+  name;
+}
+
+class Library{
+   1-> * Album album;
+   1-> * PlayList playlist;
+   1-> * Song song;
+} 
+
+class PlayMusic{
+  
+}
